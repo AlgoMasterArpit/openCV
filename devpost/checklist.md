@@ -39,7 +39,7 @@ Build mode: fast
   Learner check: On the laptop (localhost allows the camera), open Room 205, hold up a meter photo with glare and then a clear one, and say whether the hint and the boxes make sense to you.
   Commit: `feat: live capture with quality hints and straightened digit reading`
 
-- [ ] **4. Wrong meter is caught, an unclear digit is re-read, and a reading is saved with units, CO₂ and the agent trace**
+- [x] **4. Wrong meter is caught, an unclear digit is re-read, and a reading is saved with units, CO₂ and the agent trace**
   Becomes usable: Photographing Room 204's meter on Room 205 shows "Ye Room 205 ka meter nahi hai, board pe …4821 dhoondho"; a low-confidence digit turns yellow, is re-read automatically and turns green; a good reading shows the Saved card with units, CO₂ (when a factor exists) and the Agent ne kya kiya list, and the room turns Ho gaya. Reopening a Ho gaya room shows its Saved card.
   Why now: Completes the one-minute demo journey on the rules path, so a recordable demo exists before any optional work.
   PRD ref: `prd.md > Right-Meter Check`, `prd.md > Reading the Display`, `prd.md > Saving a Reading`, `prd.md > Rooms List`
@@ -49,7 +49,7 @@ Build mode: fast
   Learner check: Run the demo sequence on the laptop with your photos and say whether the Saved card and the Agent ne kya kiya list tell the story you want the video to tell.
   Commit: `feat: serial check, automatic re-read and saved reading with trace`
 
-- [ ] **5. When the agent gives up, the room goes to review and the caretaker moves on**
+- [x] **5. When the agent gives up, the room goes to review and the caretaker moves on**
   Becomes usable: Each limit from the PRD table ends in the orange Review card with a one-line reason and "Agle room pe jao"; a review record with photos and trace is saved; the room shows Review mein and can be reopened with fresh limits; a reading lower than the previous one goes straight to review; a failed upload offers Dobara bhejo without double-saving.
   Why now: Makes the "caretaker kabhi atakta nahi" promise true before the phone test, where bad light and weak WiFi will actually happen.
   PRD ref: `prd.md > Agent Limits and Review`, `prd.md > Saving a Reading`, `prd.md > States and Boundaries`
@@ -59,7 +59,7 @@ Build mode: fast
   Learner check: Keep sending glare photos for one room until it goes to review, then reopen it and save a good reading; say whether the orange card's wording feels right.
   Commit: `feat: agent limits, review records and safe resend`
 
-- [ ] **6. A new meter can be linked to a room from one photo**
+- [x] **6. A new meter can be linked to a room from one photo**
   Becomes usable: A "Meter jodna hai" room opens the Add Meter screen; after a photo the confirm screen shows the serial and first reading with "Ye meter Room 205 ka hai?"; Haan, jodo links it in one transaction and saves the baseline; an unreadable serial gets 3 tries then review; a serial already linked elsewhere is refused.
   Why now: 204/205 must be registered from real photos on Oct 26 between 13:00 and 15:00 so the evening demo has a real previous reading.
   PRD ref: `prd.md > Add Meter`
@@ -112,3 +112,5 @@ Activity mode: not started
 
 ## Revisions
 - Slice 2 started before slice 1's real-photo probe — the learner's 204/205 photos were not yet available; slice 1 stays unchecked until the probe runs on them, and slice 2 does not depend on OCR results.
+- Slice 7 code and fake-provider tests are done, but its live check waits for the learner's Gemini key; the box stays open until one real call shows decided_by: llm.
+- Slice 8's tunnel check could not run from the agent: the network blocks Cloudflare's tunnel port and the agent is not allowed to open public tunnels. The learner runs the tunnel from a phone hotspot during the corridor test; the box stays open until then.

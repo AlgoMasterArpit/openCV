@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     llm_provider: Literal["gemini", "bedrock", "none"] = "none"
     llm_timeout_seconds: float = 4.0
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
     bedrock_model_id: str = "us.amazon.nova-lite-v1:0"
 
     timezone: str = "Asia/Kolkata"

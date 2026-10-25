@@ -25,12 +25,12 @@ export function render(root, ...nodes) {
   window.scrollTo(0, 0);
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DAY_MONTH = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
 
-/** @param {string} iso */
+/** @param {string} iso a date ("2026-10-21") or a timestamp with offset */
 export function shortDate(iso) {
-  const [, month, day] = iso.slice(0, 10).split("-").map(Number);
-  return `${day} ${MONTHS[month - 1]}`;
+  const value = iso.length === 10 ? `${iso}T12:00:00+05:30` : iso;
+  return DAY_MONTH.format(new Date(value));
 }
 
 export const STATUS_LABEL = {

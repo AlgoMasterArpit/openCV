@@ -289,3 +289,59 @@ p { margin: 0; }
   background: var(--surface);
 }
 .review-card h1 { font-size: 1.2rem; }
+
+.saved-card {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 2px solid var(--done);
+  background: var(--surface);
+}
+.saved-head { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--done); }
+.tick { width: 28px; height: 28px; stroke: var(--done); stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.saved-card .reading { font-size: 3rem; line-height: 1.1; margin: 4px 0; }
+.saved-when { color: var(--text-soft); }
+
+.agent-steps { display: grid; gap: 8px; }
+.agent-steps h2 { font-size: 1.1rem; }
+.agent-steps ol { margin: 0; padding-left: 1.4em; display: grid; gap: 6px; }
+.agent-steps li { padding-left: 4px; }
+.agent-steps .by {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  font-size: 0.95rem;
+}
+.agent-steps .by.llm { border-color: var(--accent); color: var(--accent); }
+.result .back { justify-self: start; }
+.result > h2 { font-size: 2rem; }
+
+.confirm-card { display: grid; gap: 10px; padding: 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); }
+.confirm-card h1 { font-size: 1.4rem; margin-top: 6px; }
+.action-bar.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.action-bar.two .button { max-width: none; margin: 0; }
+
+.camera-note {
+  position: absolute;
+  top: calc(96px + env(safe-area-inset-top));
+  left: 16px;
+  right: 16px;
+  margin: 0;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: var(--radius);
+}
+.steps { margin: 0; padding-left: 1.4em; display: grid; gap: 6px; }
+.link-button { display: grid; place-items: center; text-decoration: none; }
+
+.sketch { width: 100%; max-width: 360px; height: auto; }
+.sk-bar { fill: var(--surface); stroke: var(--border); stroke-width: 2; }
+.sk-menu { fill: var(--surface); stroke: var(--border); stroke-width: 2; }
+.sk-hot { fill: none; stroke: var(--accent); stroke-width: 3; }
+.sk-icon { fill: var(--text); }
+.sk-line { fill: none; stroke: var(--text); stroke-width: 2; }
+.sk-text { fill: var(--text); font: 600 14px var(--sans); }
+.sk-on { fill: var(--accent); }

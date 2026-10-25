@@ -1,10 +1,14 @@
 import { api, ApiError, token } from "./api.js";
 import { CameraError, capturePhoto, closeCamera, openCamera } from "./camera.js";
 import { h, render } from "./dom.js";
+import { inAppBrowser } from "./inapp.js";
+import { locationJson, locationUnavailable, requestLocation } from "./location.js";
 import { cameraScreen } from "./screens/camera.js";
+import { cameraBlockedCard, openInChromeCard } from "./screens/help.js";
 import { actionBar, photoPanel } from "./screens/result.js";
 import { roomScreen } from "./screens/room.js";
 import { roomsScreen } from "./screens/rooms.js";
+import { agentSteps, savedCard } from "./screens/saved.js";
 
 const app = /** @type {HTMLElement} */ (document.getElementById("app"));
 
@@ -42,6 +46,17 @@ async function showRooms() {
 
 async function showRoom(roomId) {
   const room = await api(`/rooms/${encodeURIComponent(roomId)}`);
+  if (room.status === "done") {
+    const latest = await api(`/rooms/${encodeURIComponent(roomId)}/latest`);
+    render(app,
+      h("section", { class: "result" },
+        h("button", { class: "back", onClick: goRooms }, "‹ Rooms"),
+        h("h2", {}, `Room ${roomId}`),
+        savedCard(latest.saved),
+        agentSteps(latest.summary)),
+      actionBar("Rooms pe wapas", goRooms));
+    return;
+  }
   render(app, ...roomScreen(room, {
     back: goRooms,
     takePhoto: () => { location.hash = `#/camera/${roomId}`; },
@@ -77,16 +92,25 @@ async function showCamera(roomId, hint) {
     },
   });
   render(app, screen.element);
+  screen.setBusy(true);
   try {
     stream = await openCamera(screen.video);
+    screen.setBusy(false);
   } catch (error) {
+    if (error instanceof CameraError && error.kind === "blocked") {
+      render(app, ...cameraBlockedCard(() => showCamera(roomId, hint).catch(failed)));
+      return;
+    }
     if (error instanceof CameraError) {
       notice("Camera nahi khula", error.message,
-        { label: "Dobara try karo", run: () => showCamera(roomId, hint) });
+        { label: "Dobara try karo", run: () => showCamera(roomId, hint).catch(failed) });
       return;
     }
     throw error;
   }
+  requestLocation().then(() => {
+    if (locationUnavailable()) screen.note("Location band hai, photo phir bhi save hogi.");
+  });
 }
 
 async function submit(blob, photoId) {
@@ -96,7 +120,7 @@ async function submit(blob, photoId) {
   const form = new FormData();
   form.append("photo", blob, "photo.jpg");
   form.append("client_photo_id", photoId);
-  form.append("location", "{}");
+  form.append("location", locationJson());
   let result;
   try {
     result = await api(`/sessions/${visit?.sessionId}/photos`, { body: form, timeoutMs: 60000 });
@@ -115,19 +139,32 @@ function showResult(url, result) {
   const roomId = visit?.roomId ?? "";
   const problem = result.action === "retake" || result.action === "new_photo";
   const tone = problem ? "problem" : result.action === "review" ? "review" : "ok";
-  const panel = photoPanel(url, result, result.hint, tone);
+  const line = result.action === "review" ? "Review ke liye bhej diya" : result.hint;
+  const panel = photoPanel(url, result, line, tone);
   const body = [panel.panel];
 
-  if (result.action === "save" || result.action === "confirm") {
-    body.push(h("div", { class: "reading-block" },
-      h("span", {}, "Reading"),
-      h("span", { class: "reading mono" }, result.display?.text ?? "")));
+  if (result.saved) {
+    body.push(savedCard(result.saved), agentSteps(result.summary));
+    navigator.vibrate?.(60);
+  } else if (result.action === "confirm" && result.confirm) {
+    const { serial, serial_last4: tail, reading } = result.confirm;
+    body.push(h("section", { class: "confirm-card" },
+      h("p", { class: "serial-line mono" }, `SN-${serial.slice(0, -4)}`, h("span", { class: "tail" }, tail)),
+      h("p", {}, "Pehli reading: ", h("strong", { class: "mono" }, reading)),
+      h("h1", {}, `Ye meter Room ${roomId} ka hai?`)));
+    render(app, h("section", { class: "result" }, ...body),
+      h("div", { class: "action-bar two" },
+        h("button", { class: "button secondary", onClick: () => answer("no") }, "Nahi, dobara photo lo"),
+        h("button", { class: "button", onClick: () => answer("yes") }, "Haan, jodo")));
+    panel.redraw();
+    return;
   }
   if (result.action === "review") {
     body.push(h("div", { class: "review-card" },
       h("h1", {}, `Room ${roomId} review ke liye bhej diya`),
-      h("p", {}, result.reason),
-      h("p", {}, "Reading save nahi hui. Aap agle room pe ja sakte ho.")));
+      h("p", {}, result.hint),
+      h("p", {}, "Reading save nahi hui. Aap agle room pe ja sakte ho.")),
+    agentSteps(result.summary));
   }
 
   const bar = problem
@@ -136,10 +173,35 @@ function showResult(url, result) {
       ? actionBar("Agle room pe jao", goRooms)
       : actionBar("Rooms pe wapas", goRooms);
   render(app, h("section", { class: "result" }, ...body), bar);
-  playSteps(panel, result, tone);
+  playSteps(panel, result, tone, line);
 }
 
-function playSteps(panel, result, tone) {
+async function answer(choice) {
+  const roomId = visit?.roomId ?? "";
+  const buttons = app.querySelectorAll(".action-bar .button");
+  buttons.forEach((b) => { b.disabled = true; });
+  try {
+    const result = await api(`/sessions/${visit?.sessionId}/confirm`, { json: { answer: choice } });
+    if (choice === "no") {
+      await showCamera(roomId, result.hint);
+      return;
+    }
+    navigator.vibrate?.(60);
+    visit = null;
+    render(app,
+      h("section", { class: "result" }, h("h2", {}, `Room ${roomId}`), savedCard(result.saved), agentSteps(result.summary)),
+      actionBar("Agle room pe jao", goRooms));
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "meter_taken") {
+      visit = null;
+      notice("Meter pehle se juda hai", error.message, { label: "Rooms pe wapas", run: goRooms });
+      return;
+    }
+    failed(error);
+  }
+}
+
+function playSteps(panel, result, tone, finalLine) {
   const reread = result.steps?.find((s) => s.step === "reread");
   const first = result.steps?.find((s) => s.step === "perceive");
   if (!reread || !first || !result.display) {
@@ -148,12 +210,11 @@ function playSteps(panel, result, tone) {
   }
   const threshold = result.display.threshold;
   const unclear = first.confidences.map((c, i) => (c < threshold ? i : -1)).filter((i) => i >= 0);
-  const finalHint = result.hint;
   panel.say("Ek digit saaf nahi, dobara padh raha hoon.", "info");
   panel.redraw({ confidences: first.confidences, unclear });
   setTimeout(() => {
     panel.redraw();
-    panel.say(finalHint, tone);
+    panel.say(finalLine, tone);
   }, 1400);
 }
 
@@ -168,6 +229,10 @@ async function route() {
   stream = null;
   if (!token) {
     notice("Link kaam nahi kar raha", "Ye link sahi nahi hai, admin se naya link maango.");
+    return;
+  }
+  if (inAppBrowser()) {
+    render(app, ...openInChromeCard());
     return;
   }
   const hash = location.hash;

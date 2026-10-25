@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
@@ -84,7 +85,7 @@ class Agent:
         image: Image,
         session: Session,
         expected_serial: str | None,
-        linked_room_for: Any = None,
+        linked_room_for: Callable[[str], str | None] | None = None,
     ) -> AgentRun:
         started = time.perf_counter()
         analysis = self.vision.analyze(image, expected_serial)
