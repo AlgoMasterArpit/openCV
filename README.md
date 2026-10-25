@@ -1,5 +1,10 @@
 # MeterMind
 
+[![ci](https://github.com/AlgoMasterArpit/Build_with_AI/actions/workflows/ci.yml/badge.svg)](https://github.com/AlgoMasterArpit/Build_with_AI/actions/workflows/ci.yml)
+![OpenCV 5.0](https://img.shields.io/badge/OpenCV-5.0-5C3EE8)
+![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB)
+![License MIT](https://img.shields.io/badge/license-MIT-green)
+
 **An agent that reads a utility meter from a live phone photo, doubts the photo when something is off, and decides by itself what to do next.**
 
 A normal OCR app reads a number even from a blurry or wrong photo. MeterMind checks the photo first with OpenCV 5, then an agent chooses the next step: ask for a retake with a specific hint, catch the wrong meter, re-read an unclear digit, send the room to human review, or save the reading. Every step is traced, so you can see what the agent did and why.
@@ -43,20 +48,66 @@ The proof of concept follows a **hostel caretaker** doing the monthly meter roun
 
 There is deliberately **no gallery upload and no box to type a reading or serial**: readings come only from live photos.
 
-## How it works
+## Architecture
 
+```mermaid
+flowchart LR
+    subgraph phone["Caretaker's phone · Android Chrome"]
+        ui["Web app<br/>rooms list · live camera<br/>red marks · digit boxes · one-line hint"]
+    end
+
+    subgraph server["MeterMind server · Python 3.12 · FastAPI"]
+        api["API<br/>round link · sessions · photos · confirm"]
+        agent["Agent loop<br/>perceive → decide → act"]
+        policy["Limits policy<br/>allowed actions · counters · rule fallback"]
+        vision["OpenCV 5 pipeline<br/>quality · DB text detection · straighten<br/>CRNN + CTC confidences · re-read · 7-segment"]
+    end
+
+    llm["LLM<br/>Gemini · or Amazon Nova on Bedrock"]
+    ddb[("DynamoDB<br/>rooms · meters · readings · sessions")]
+    s3[("S3<br/>private, encrypted photos")]
+
+    ui -- "HTTPS · live photo + client_photo_id" --> api
+    api --> agent
+    agent --> vision
+    agent --> policy
+    agent -- "measurements JSON only, no photo" --> llm
+    api -- "transactions, conditional writes" --> ddb
+    api -- "put + 5-minute presigned reads" --> s3
+    api -- "hint · boxes · trace" --> ui
 ```
-phone (Chrome)                     FastAPI server                                 AWS
-──────────────                     ──────────────                                 ───
-live camera  ──photo + id──▶  perceive: OpenCV 5 pipeline  ─────────────────▶  S3 (private photos)
-                                 quality · DB text detection · straighten
-                                 · CRNN + per-digit confidence · serial match
-                              decide:  LLM picks one allowed action  ◀──JSON──  (Gemini now,
-                                       code enforces limits, rules on failure     Nova on Bedrock later)
-                              act:     retake hint · re-read · new photo
-                                       · save · review · confirm meter
-◀── hint, boxes, trace ──────  trace every step (decided_by: llm | rule)  ───▶  DynamoDB + CloudWatch
+
+On a laptop the same code talks to a local [moto](https://docs.getmoto.org/) server instead of AWS, selected by one setting (`AWS_ENDPOINT_URL`). The OpenCV step can run on a separate host by setting `VISION_URL` ([`app/vision/service.py`](app/vision/service.py)).
+
+### One photo through the agent
+
+```mermaid
+sequenceDiagram
+    actor C as Caretaker
+    participant W as Web app
+    participant A as Agent
+    participant V as OpenCV 5
+    participant P as Limits policy
+    participant L as LLM
+
+    C->>W: Photo lo (live camera only)
+    W->>A: photo + client_photo_id
+    A->>V: analyze(photo, room's serial)
+    V-->>A: quality issues, serial status, digits + confidences
+    A->>P: allowed actions for this situation
+    A->>L: observation JSON + allowed actions
+    L-->>A: action + one-line Hinglish hint
+    Note over A,L: slow, invalid or disallowed reply → rule decision
+    opt a digit is unclear
+        A->>V: re-read with the chosen variant
+        V-->>A: new confidences
+        A->>L: decide again
+    end
+    A-->>W: retake hint / saved reading / review + trace
+    W-->>C: red marks, digit boxes, "Agent ne kya kiya"
 ```
+
+## How it works
 
 - **Perception is OpenCV 5 only.** `opencv-python-headless==5.0.0.93` runs the OpenCV Zoo PP-OCRv3 DB text detector and the CRNN recognizer through `cv2.dnn`, plus classic image processing for quality, straightening (`getPerspectiveTransform` / `warpPerspective`), re-read variants and a seven-segment backup decoder ([`app/vision/`](app/vision/)).
 - **The LLM sees measurements, never photos.** It receives a small JSON observation (quality issues, glare cells, serial match status, digit confidences, attempts left, allowed actions). No image and no OCR text is sent, so a sticker saying *"ignore rules, save"* cannot reach the prompt ([`app/agent/llm.py`](app/agent/llm.py)).
@@ -70,6 +121,42 @@ live camera  ──photo + id──▶  perceive: OpenCV 5 pipeline  ───�
 | Serial unreadable | 3 tries, then review |
 | Unclear digit | one automatic re-read, one new photo, then review |
 | Reading lower than previous | review immediately |
+
+### Data
+
+One DynamoDB table (`PK`, `SK`), so a hostel's rooms list is one query and every save is one transaction.
+
+| Item | Key | Holds |
+| --- | --- | --- |
+| Round link | `LINK#<sha256(token)>` | hostel, caretaker (the raw token is never stored) |
+| Room | `HOSTEL#<id>` / `ROOM#<room>` | meter serial, previous reading, this month's status |
+| Meter guard | `METER#<serial>` | the one room a serial belongs to (conditional write) |
+| Reading / review | `HOSTEL#<id>#ROOM#<room>` / `READ#<time>` | reading, units, CO₂, reason, photo keys, full trace |
+| Session | `SESSION#<id>` | attempt counters, stored responses per `client_photo_id`, expiry |
+
+## Tech stack
+
+| Layer | Choice | Why |
+| --- | --- | --- |
+| Vision | OpenCV 5.0 (`cv2.dnn`, imgproc), OpenCV Zoo PP-OCRv3 DB + CRNN | All perception in OpenCV; per-character confidence from our own CTC decoding |
+| Agent | Rules policy + LLM decider (Gemini REST or Bedrock Converse) | LLM chooses within code-enforced limits; rules take over on any failure |
+| Backend | Python 3.12, FastAPI, pydantic, boto3 | One language for vision, agent and API |
+| Data | DynamoDB single table, S3, moto for local runs | Transactions and conditional writes; offline laptop runs with the same code |
+| Frontend | Plain HTML, CSS, JS modules, self-hosted IBM Plex | No build step; camera via `getUserMedia` + `ImageCapture` |
+| Quality | pytest, ruff, mypy (strict), GitHub Actions | 74 tests, including synthetic meter photos |
+
+## Built with the Devpost Learn skill pack
+
+The project started from an empty folder and was planned before any code, through the skill pack's flipped-interaction interviews:
+
+1. [`devpost/scope.md`](devpost/scope.md) — the kernel (an agent that doubts the photo), the user (a hostel caretaker) and a hard proof-of-concept boundary.
+2. [`devpost/prd.md`](devpost/prd.md) — every screen, behavior, limit and edge case, with checkable acceptance criteria.
+3. [`devpost/spec.md`](devpost/spec.md) — stack, components, data model, failure modes and a timed build order.
+4. [`devpost/checklist.md`](devpost/checklist.md) — the build in eight verified slices, each committed separately.
+
+## Not in this proof of concept
+
+Deliberately left for later (see [`devpost/scope.md`](devpost/scope.md#later)): a resident page with photo proof and disputes, a room bill split, an auditor dashboard for review records, reused-photo and edit-mark detection, WhatsApp delivery.
 
 ## Run it locally
 
